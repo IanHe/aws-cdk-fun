@@ -8,8 +8,7 @@ public class MyCdkApp {
     public static void main(final String[] args) {
         App app = new App();
 
-        new MyCdkStack(app, "MyCdkStack");
-
+        new CdkWorkshopStack(app, "CdkWorkshopStack");
         app.synth();
     }
 }
