@@ -1,79 +1,94 @@
 package com.myorg;
 
 
-import org.jetbrains.annotations.Nullable;
 import software.amazon.awscdk.core.Construct;
+import software.amazon.awscdk.core.Duration;
 import software.amazon.awscdk.core.Stack;
 import software.amazon.awscdk.core.StackProps;
+import software.amazon.awscdk.services.batch.*;
+import software.amazon.awscdk.services.ec2.IVpc;
+import software.amazon.awscdk.services.ec2.InstanceType;
+import software.amazon.awscdk.services.ec2.Vpc;
+import software.amazon.awscdk.services.ec2.VpcLookupOptions;
+import software.amazon.awscdk.services.ecr.Repository;
+import software.amazon.awscdk.services.ecr.RepositoryProps;
+import software.amazon.awscdk.services.ecs.AmiHardwareType;
+import software.amazon.awscdk.services.ecs.ContainerImage;
+import software.amazon.awscdk.services.ecs.EcsOptimizedImage;
+import software.amazon.awscdk.services.iam.Role;
+import software.amazon.awscdk.services.iam.RoleProps;
+import software.amazon.awscdk.services.iam.ServicePrincipal;
+
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class CdkBatchStack extends Stack {
-    private Construct scope;
-    private String id;
-    private StackProps props;
-
-    public CdkBatchStack( Construct scope,  String id,  StackProps props) {
-        super(scope, id, props);
-        this.scope = scope;
-        this.id = id;
-        this.props = props;
-    }
-
-    private val computeEnvironmentId = s"${getNode().getId()}-ComputeEnvironment"
-    private val computeEnvironmentName = "TextractTraining-ComputeEnvironment"
-    private val jobQueueId = s"${getNode().getId()}-JobQueue"
-    private val jobQueueName = "TextractTraining-PriorityJobQueue"
-    private val jobQueueMaxPriority = 10
+    private String nodeId = getNode().getId();
+    private String computeEnvironmentId = nodeId + "-ComputeEnvironment";
+    private String computeEnvironmentName = "TextractTraining-ComputeEnvironment";
+    private String jobQueueId = nodeId + "-JobQueue";
+    private String jobQueueName = "TextractTraining-PriorityJobQueue";
+    private int jobQueueMaxPriority = 10;
     // Job
-    private val jobDefinitionId = s"${getNode().getId()}-JobDefinition"
-    private val jobParams = map( ("bucket",""), ("objectKey", ""), ("fileExtension", "")) // bucket, objectKey is required for each submitted job
+    private String jobDefinitionId = nodeId + "-JobDefinition";
+    private Map<String, String> jobParams = new HashMap() {{
+        put("bucket", "");
+        put("objectKey", "");
+        put("fileExtension", "");
+    }}; // bucket, objectKey is required for each submitted job
 
     // Container to run
-    private val containerRepositoryName = ""
-    private val containerRunCommands = list("Ref::bucket", "Ref::objectKey", "Ref::fileExtension")
+    private String containerRepositoryName = "";
+    private List containerRunCommands = Arrays.asList("Ref::bucket", "Ref::objectKey", "Ref::fileExtension");
 
     // Role
-    private val roleName = s"${getNode().getId()}-TextractTrainingRole"
+    private String roleName = nodeId + "-TextractTrainingRole";
 
-    // Resources to create
-    private val role = createRole()
-    private val computeEnvironment = createComputeEnvironment()
-    private val jobQueue = createJobQueue(computeEnvironment)
-    private val jobDefinition = createJobDefinition()
+    public CdkBatchStack(Construct scope, String id, StackProps props, String vpcId) {
+        super(scope, id, props);
+        // Resources to create
+        Role role = createRole();
+        ComputeEnvironment computeEnvironment = createComputeEnvironment(scope, vpcId);
+        JobQueue jobQueue = createJobQueue(scope);
+        JobDefinition jobDefinition = createJobDefinition(scope, role);
+    }
 
-    private def createComputeEnvironment(): ComputeEnvironment = {
-        val vpc = lookupVpc()
-        val image = EcsOptimizedImage.amazonLinux2(AmiHardwareType.GPU)
+    private ComputeEnvironment createComputeEnvironment(Construct scope, String vpcId) {
+        IVpc vpc = lookupVpc(vpcId);
+        EcsOptimizedImage image = EcsOptimizedImage.amazonLinux2(AmiHardwareType.GPU);
 
-        val computeResources = ComputeResources.builder()
-                .`type`(ComputeResourceType.SPOT)
+        ComputeResources computeResources = ComputeResources.builder()
+                .type(ComputeResourceType.SPOT)
                 .bidPercentage(70)
                 .minvCpus(1)
                 .maxvCpus(2)
-                .instanceTypes(list("p2.8xlarge")) // 8 gpus
+                .instanceTypes(Arrays.asList(new InstanceType("p2.8xlarge"))) // 8 gpus
                 .allocationStrategy(AllocationStrategy.SPOT_CAPACITY_OPTIMIZED)
                 .vpc(vpc)
                 .image(image)
-                .build()
+                .build();
 
-        ComputeEnvironment.Builder.create(scope, computeEnvironmentId)
+        return ComputeEnvironment.Builder.create(scope, computeEnvironmentId)
                 .computeEnvironmentName(computeEnvironmentName)
                 .computeResources(computeResources)
-                .build()
+                .build();
     }
 
-    private def createJobQueue(environment: ComputeEnvironment): JobQueue = {
-        JobQueue.Builder.create(scope, jobQueueId)
+    private JobQueue createJobQueue(Construct scope) {
+        return JobQueue.Builder.create(scope, jobQueueId)
                 .jobQueueName(jobQueueName)
                 .priority(jobQueueMaxPriority)
-                .computeEnvironments(list(environment))
-                .build()
+//                .computeEnvironments(Arrays.asList(environment))
+                .build();
     }
 
-    private def createJobDefinition(): JobDefinition = {
-        val repository = new Repository(scope, containerRepositoryName, RepositoryProps.builder().repositoryName(containerRepositoryName).build())
-        val containerImage = ContainerImage.fromEcrRepository(repository) // e.g: docker image to run the job
+    private JobDefinition createJobDefinition(Construct scope, Role role) {
+        Repository repository = new Repository(scope, containerRepositoryName, RepositoryProps.builder().repositoryName(containerRepositoryName).build());
+        ContainerImage containerImage = ContainerImage.fromEcrRepository(repository);// e.g: docker image to run the job
 
-        val container = JobDefinitionContainer.builder()
+        JobDefinitionContainer container = JobDefinitionContainer.builder()
                 .image(containerImage)
 //      .instanceType(new InstanceType("p2.8xlarge"))
                 .command(containerRunCommands)
@@ -81,26 +96,26 @@ public class CdkBatchStack extends Stack {
                 .memoryLimitMiB(8192)
                 .gpuCount(4)
                 .jobRole(role)
-                .build()
+                .build();
 
-        JobDefinition.Builder.create(scope, jobDefinitionId)
+        return JobDefinition.Builder.create(scope, jobDefinitionId)
                 .timeout(Duration.minutes(60))
                 .container(container)
                 .parameters(jobParams)
-                .build()
+                .build();
     }
 
-    private def createRole(): Role = {
-        val role = new Role(this, roleName,
+    private Role createRole() {
+        Role role = new Role(this, roleName,
                 RoleProps.builder()
                         .roleName(roleName)
                         .assumedBy(new ServicePrincipal("ec2.amazonaws.com"))
                         //        .managedPolicies(list(ManagedPolicy.fromAwsManagedPolicyName("service-role/AmazonElasticMapReduceforEC2Role")))
-                        .build())
-        role
+                        .build());
+        return role;
     }
 
-    private def lookupVpc(): IVpc = {
-        Vpc.fromLookup(this, s"${getNode().getId()}-Vpc", VpcLookupOptions.builder().vpcId(vpcId).build())
+    private IVpc lookupVpc(String vpcId) {
+        return Vpc.fromLookup(this, nodeId + "-Vpc", VpcLookupOptions.builder().vpcId(vpcId).build());
     }
 }
