@@ -22,3 +22,7 @@ Enjoy!
 ###https://aws.amazon.com/getting-started/hands-on/run-batch-jobs-at-scale-with-ec2-spot/
 ###https://docs.aws.amazon.com/batch/latest/userguide/create-batch-ami.html
 ###https://docs.aws.amazon.com/batch/latest/userguide/batch-gpu-ami.html
+
+Roles Required:
+user: iam:PassRole - IAMFullAccess
+computeEnvironment - AWSBatchServiceRole
