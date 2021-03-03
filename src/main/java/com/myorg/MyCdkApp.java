@@ -11,7 +11,7 @@ public class MyCdkApp {
         App app = new App();
 
 //        new CdkWorkshopStack(app, "CdkWorkshopStack");
-        new CdkBatchStack(app, "Test1CdkBatchStack",  "vpc-73b38114", StackProps.builder().env(makeEnv("796022917205", "ap-southeast-2")).build());
+        new CdkBatchStack(app, "Test4CdkBatchStack",  "vpc-73b38114", StackProps.builder().env(makeEnv("796022917205", "ap-southeast-2")).build());
         app.synth();
     }
 

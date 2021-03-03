@@ -6,16 +6,15 @@ import software.amazon.awscdk.core.Duration;
 import software.amazon.awscdk.core.Stack;
 import software.amazon.awscdk.core.StackProps;
 import software.amazon.awscdk.services.batch.*;
-import software.amazon.awscdk.services.ec2.IVpc;
-import software.amazon.awscdk.services.ec2.InstanceType;
-import software.amazon.awscdk.services.ec2.Vpc;
-import software.amazon.awscdk.services.ec2.VpcLookupOptions;
+import software.amazon.awscdk.services.ec2.*;
 import software.amazon.awscdk.services.ecr.IRepository;
 import software.amazon.awscdk.services.ecr.Repository;
-import software.amazon.awscdk.services.ecr.RepositoryProps;
 import software.amazon.awscdk.services.ecs.ContainerImage;
 import software.amazon.awscdk.services.ecs.EcsOptimizedImage;
-import software.amazon.awscdk.services.iam.*;
+import software.amazon.awscdk.services.iam.IRole;
+import software.amazon.awscdk.services.iam.Role;
+import software.amazon.awscdk.services.iam.RoleProps;
+import software.amazon.awscdk.services.iam.ServicePrincipal;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -23,7 +22,7 @@ import java.util.List;
 import java.util.Map;
 
 public class CdkBatchStack extends Stack {
-    private String nodeId = getNode().getId() + "1";
+    private String nodeId = getNode().getId() + "4";
     private String computeEnvironmentId = nodeId + "-ComputeEnvironment";
     private String computeEnvironmentName = nodeId + "-ComputeEnvironment";
     private String jobQueueId = nodeId + "-JobQueue";
@@ -56,18 +55,27 @@ public class CdkBatchStack extends Stack {
 
     private ComputeEnvironment createComputeEnvironment(String vpcId) {
         IVpc vpc = lookupVpc(vpcId);
+        SecurityGroup sg = new SecurityGroup(this, nodeId + "-SG",
+                SecurityGroupProps.builder()
+                        .vpc(vpc)
+                        .securityGroupName(nodeId + "-MasterSG")
+                        .build());
+        sg.addIngressRule(Peer.anyIpv4(), Port.tcp(22), "Allow ssh access from the world");
+
         EcsOptimizedImage image = EcsOptimizedImage.amazonLinux2();//EcsOptimizedImage.amazonLinux2(AmiHardwareType.GPU);
 
-        IRole serviceRole = Role.fromRoleArn(this, nodeId + "-ComputeEnvRole", "arn:aws:iam::aws:policy/service-role/AWSBatchServiceRole");
+        IRole serviceRole = Role.fromRoleArn(this, nodeId + "-ComputeEnvRole", "arn:aws:iam::796022917205:role/service-role/AWSBatchServiceRole");
 
         ComputeResources computeResources = ComputeResources.builder()
                 .type(ComputeResourceType.SPOT)
                 .bidPercentage(70)
-                .minvCpus(1)
-                .maxvCpus(1)
-                .instanceTypes(Arrays.asList(new InstanceType("a1.medium"))) // p2.8xlarge - 8 gpus
+                .minvCpus(2)
+                .desiredvCpus(2)
+                .maxvCpus(2)
+                .instanceTypes(Arrays.asList(new InstanceType("c5.large"))) // p2.8xlarge - 8 gpus
                 .allocationStrategy(AllocationStrategy.SPOT_CAPACITY_OPTIMIZED)
                 .vpc(vpc)
+                .securityGroups(Arrays.asList(sg))
                 .image(image)
                 .build();
 
@@ -93,10 +101,10 @@ public class CdkBatchStack extends Stack {
 //        ContainerImage containerImage = ContainerImage.fromRegistry("public.ecr.aws/amazonlinux/amazonlinux:latest");
         JobDefinitionContainer container = JobDefinitionContainer.builder()
                 .image(containerImage)
-//      .instanceType(new InstanceType("a1.medium")) // p2.8xlarge
+//      .instanceType(new InstanceType("c5.large")) // p2.8xlarge
                 .command(containerRunCommands)
-                .vcpus(1)
-                .memoryLimitMiB(2048)
+                .vcpus(2)
+                .memoryLimitMiB(4096)
 //                .gpuCount(4)
                 .jobRole(role)
                 .build();
